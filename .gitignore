@@ -1,0 +1,21 @@
+# Build artifacts
+output/
+build-output/
+*.o
+*.a
+*.so
+*.ko
+*.bin
+*.elf
+*.map
+*.hex
+*.log
+
+# Executables
+applications/wayland_npu_app/app_wayland_npu
+applications/wayland_npu_app/app_wayland_npu5
+
+# Editor
+.vscode/
+*.swp
+*~
