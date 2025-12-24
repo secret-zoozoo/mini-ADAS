@@ -1,0 +1,35 @@
+{
+    // Learn about possible attributes using IntelliSense.
+    // Point to a description of an existing attribute.
+    // For more information, visit https://go.microsoft.com/fwlink/?linkid=830387 .
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch-apache6",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/sample/hello",
+            "args": ["1", "2", "add"],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "miDebuggerServerAddress": "192.168.13.33:1234",
+            "setupCommands": [
+                {
+                    "description": "Enable automatic formatting in gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set disassembly version to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+
+    ]
+}
