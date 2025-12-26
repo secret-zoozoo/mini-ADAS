@@ -347,7 +347,7 @@ CSRCS               += $(NC_APP_MODULES)/dsr/nc_dsr_set.c
 CSRCS               += $(NC_APP_MODULES)/dsr/nc_dsr_helper.c
 endif
 
-TARGET_TEST         := app_wayland_npu5
+TARGET_TEST         := test1
 
 all:
 	${CXX} $(CFLAGS_TEST) $(CPPSRCS) $(CSRCS) -o $(TARGET_TEST) $(LIBRARY)

@@ -52,7 +52,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "adas_logic.h"
 #include "nc_app_config_parser.h"
 #include "nc_cnn_aiware_runtime.h"
 #include "nc_cnn_communicator.h"
@@ -77,6 +76,7 @@
 #include "nc_dsr_helper.h"
 #include "nc_dsr_set.h"
 #endif
+
 #ifdef USE_ADAS_LD
 #include "ADAS_LD_Lib.h"
 #endif
@@ -243,47 +243,45 @@ void set_viewport_config(void) {
   g_viewport[0].y = 0;
   g_viewport[0].width = WINDOW_WIDTH;
   g_viewport[0].height = WINDOW_HEIGHT;
+#elif (VIDEO_MAX_CH == 2)
+  // Split Screen (Top/Bottom)
+  // Top Viewport (Camera 0)
+  g_viewport[0].x = 0;
+  g_viewport[0].y = 0;
+  g_viewport[0].width = WINDOW_WIDTH;
+  g_viewport[0].height = WINDOW_HEIGHT / 2;
+
+  // Bottom Viewport (Camera 1)
+  g_viewport[1].x = 0;
+  g_viewport[1].y = WINDOW_HEIGHT / 2;
+  g_viewport[1].width = WINDOW_WIDTH;
+  g_viewport[1].height = WINDOW_HEIGHT / 2;
 #elif (VIDEO_MAX_CH > 1)
-  // Left/Right Split View for Driving Mode (2 Channels)
-  if (VIDEO_MAX_CH == 2) {
-    printf("[DEBUG] Configuring Split View for 2 Channels (Front/Rear)\n");
-    // Channel 0 (Front): Left Half
-    g_viewport[0].width = WINDOW_WIDTH / 2;
-    g_viewport[0].height = WINDOW_HEIGHT;
-    g_viewport[0].x = 0;
-    g_viewport[0].y = 0;
+  // quad view
+  for (int i = 0; i < VIDEO_MAX_CH; i++) {
+    g_viewport[i].width = WINDOW_WIDTH / 2;
+    g_viewport[i].height = WINDOW_HEIGHT / 2;
 
-    // Channel 1 (Rear): Right Half
-    g_viewport[1].width = WINDOW_WIDTH / 2;
-    g_viewport[1].height = WINDOW_HEIGHT;
-    g_viewport[1].x = WINDOW_WIDTH / 2;
-    g_viewport[1].y = 0;
-  } else {
-    // Default Quad View (Fallback for >2 channels)
-    for (int i = 0; i < VIDEO_MAX_CH; i++) {
-      g_viewport[i].width = WINDOW_WIDTH / 2;
-      g_viewport[i].height = WINDOW_HEIGHT / 2;
-
-      switch (i) {
-      case 0:
-        g_viewport[i].x = 0;
-        g_viewport[i].y = WINDOW_HEIGHT / 2;
-        break;
-      case 1:
-        g_viewport[i].x = WINDOW_WIDTH / 2;
-        g_viewport[i].y = WINDOW_HEIGHT / 2;
-        break;
-      case 2:
-        g_viewport[i].x = 0;
-        g_viewport[i].y = 0;
-        break;
-      case 3:
-        g_viewport[i].x = WINDOW_WIDTH / 2;
-        g_viewport[i].y = 0;
-        break;
-      default:
-        break;
-      }
+    // Set the view position for each channel
+    switch (i) {
+    case 0:
+      g_viewport[i].x = 0;
+      g_viewport[i].y = WINDOW_HEIGHT / 2;
+      break;
+    case 1:
+      g_viewport[i].x = WINDOW_WIDTH / 2;
+      g_viewport[i].y = WINDOW_HEIGHT / 2;
+      break;
+    case 2:
+      g_viewport[i].x = 0;
+      g_viewport[i].y = 0;
+      break;
+    case 3:
+      g_viewport[i].x = WINDOW_WIDTH / 2;
+      g_viewport[i].y = 0;
+      break;
+    default:
+      break;
     }
   }
 #endif
@@ -293,7 +291,6 @@ void set_v4l2_config(void) {
   int i = 0, j = 0;
 
   for (i = 0; i < VIS0_MAX_CH; i++) {
-    printf("[DEBUG] Setting up Front Camera (CH %d)\n", i);
     v4l2_config[i].video_buf.video_device_num = CNN_DEVICE_NUM(VISION0) + i;
     v4l2_config[i].video_buf.video_fd = -1;
 #ifdef USE_8MP_VI
@@ -302,11 +299,7 @@ void set_v4l2_config(void) {
     v4l2_config[i].dma_mode = PLANAR;
 #endif
     v4l2_config[i].img_process = MODE_DS;
-#ifdef USE_8MP_VI
-    v4l2_config[i].pixformat = V4L2_PIX_FMT_YUYV;
-#else
     v4l2_config[i].pixformat = V4L2_PIX_FMT_RGB24;
-#endif
     v4l2_config[i].crop_x_start = 0;
     v4l2_config[i].crop_y_start = 0;
     v4l2_config[i].crop_width = 0;
@@ -320,31 +313,48 @@ void set_v4l2_config(void) {
 #endif
   }
 
-  for (j = VIS0_MAX_CH; j < VIDEO_MAX_CH; j++) {
-    printf("[DEBUG] Setting up Rear Camera (CH %d)\n", j);
-    v4l2_config[j].video_buf.video_device_num = CNN_DEVICE_NUM(VISION1) + j;
-    v4l2_config[j].video_buf.video_fd = -1;
+  // Rear Camera Loop (VIS1)
+  for (j = 0; j < VIS1_MAX_CH; j++) {
+    // config_idx ensures we append after front cameras (if any)
+    // If VIS0_MAX_CH is 0, this starts at 0.
+    int config_idx = VIS0_MAX_CH + j;
+
+    // Force Vision 1 (Rear Camera) Device Number
+    // We use 'j' as offset: /dev/video60, /dev/video61...
+    v4l2_config[config_idx].video_buf.video_device_num =
+        CNN_DEVICE_NUM(VISION1) + j;
+
+    printf("\n[DEBUG] =======================================\n");
+    printf("[DEBUG] Configuring Camera Index: %d\n", config_idx);
+    printf("[DEBUG] Target Device: /dev/video%d (VISION1)\n",
+           v4l2_config[config_idx].video_buf.video_device_num);
+    printf("[DEBUG] =======================================\n\n");
+
+    v4l2_config[config_idx].video_buf.video_fd = -1;
 #ifdef USE_8MP_VI
-    v4l2_config[j].dma_mode = INTERLEAVE;
+    v4l2_config[config_idx].dma_mode = INTERLEAVE;
 #else
-    v4l2_config[j].dma_mode = PLANAR;
+    v4l2_config[config_idx].dma_mode = PLANAR;
 #endif
-    v4l2_config[j].img_process = MODE_DS;
+    // Revert: Use MODE_DS (Downscale) instead of CROP to avoid S_EXT_CTRLS
+    // error
+    v4l2_config[config_idx].img_process = MODE_DS;
+    // [Fix] Hardware reports RGB3 (RGB24) in logs.
+    // USE_8MP_VI default is YUYV, which causes S_EXT_CTRLS error.
+    // We must force RGB24 to match hardware.
+    v4l2_config[config_idx].pixformat = V4L2_PIX_FMT_RGB24;
+    v4l2_config[config_idx].crop_x_start = 0;
+    v4l2_config[config_idx].crop_y_start = 0;
+    v4l2_config[config_idx].crop_width = 0;
+    v4l2_config[config_idx].crop_height = 0;
+
+    // Use default FHD resolution (1920x1080) for 2:1 downscaling from 4K
 #ifdef USE_8MP_VI
-    v4l2_config[j].pixformat = V4L2_PIX_FMT_YUYV;
+    v4l2_config[config_idx].ds_width = MAX_WIDTH_FOR_VDMA_CNN_DS;
+    v4l2_config[config_idx].ds_height = MAX_HEIGHT_FOR_VDMA_CNN_DS;
 #else
-    v4l2_config[j].pixformat = V4L2_PIX_FMT_RGB24;
-#endif
-    v4l2_config[j].crop_x_start = 0;
-    v4l2_config[j].crop_y_start = 0;
-    v4l2_config[j].crop_width = 0;
-    v4l2_config[j].crop_height = 0;
-#ifdef USE_8MP_VI
-    v4l2_config[j].ds_width = MAX_WIDTH_FOR_VDMA_CNN_DS;
-    v4l2_config[j].ds_height = MAX_HEIGHT_FOR_VDMA_CNN_DS;
-#else
-    v4l2_config[j].ds_width = VIDEO_WIDTH;
-    v4l2_config[j].ds_height = VIDEO_HEIGHT;
+    v4l2_config[config_idx].ds_width = VIDEO_WIDTH;
+    v4l2_config[config_idx].ds_height = VIDEO_HEIGHT;
 #endif
   }
 }
@@ -422,49 +432,9 @@ void nc_draw_gl_npu(struct viewport viewport, int network_task,
                     pp_result_buf *net_result,
                     struct gl_npu_program g_npu_prog) {
   stCnnPostprocessingResults *det_result = &net_result->cnn_result;
-
-  // Rule: Do not draw Segmentation for Rear Camera (Ch 1)
-  if (net_result->cam_channel == 1 && (network_task == SEGMENTATION)) {
-    return;
-  }
-
   stObjDrawInfo *draw_cnn = &net_result->draw_info;
   stSegDrawInfo *draw_seg = &net_result->seg_info;
   stLaneDrawInfo *draw_lane = &net_result->lane_draw_info;
-
-  // ADAS Check & Visualization
-  AdaAlertState alerts = {0};
-  check_adas_rules(net_result->cam_channel, det_result, &alerts);
-
-  if (alerts.fcw) {
-    // Draw Red Bar for FCW (Top 30px)
-    float color[4] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red
-    nc_opengl_draw_rectangle(viewport.x, viewport.y, viewport.width, 30, color,
-                             g_npu_prog);
-    // Bottom Bar
-    nc_opengl_draw_rectangle(viewport.x, viewport.y + viewport.height - 30,
-                             viewport.width, 30, color, g_npu_prog);
-  }
-
-  // BSD Visualization (Yellow Bars on Side)
-  float bsd_color[4] = {1.0f, 1.0f, 0.0f, 1.0f}; // Yellow
-
-  if (alerts.bsd_left) {
-    // Draw Left Bar (relative to viewport)
-    nc_opengl_draw_rectangle(viewport.x, viewport.y, 30, viewport.height,
-                             bsd_color, g_npu_prog);
-  }
-
-  if (alerts.bsd_right) {
-    // Draw Right Bar (relative to viewport)
-    nc_opengl_draw_rectangle(viewport.x + viewport.width - 30, viewport.y, 30,
-                             viewport.height, bsd_color, g_npu_prog);
-  }
-  if (alerts.ldw) {
-    // LDW Warning (maybe Text or Line Highlight)
-    // Already highlighting logic might be in draw_lane?
-    // Just add a text overlay "LDW WARNING"
-  }
 
   int max_class_cnt = draw_cnn->max_class_cnt;
   int max_seg_class_cnt = draw_seg->max_class_cnt;
@@ -807,15 +777,8 @@ void render(void *data, struct wl_callback *callback, uint32_t time) {
             ((framecnt % 2 == 1) && (i == 1 || i == 3)))
 #endif
         {
-          // Frame Skip Logic for Rear Camera (Ch 1) to save NPU Load (Run only
-          // on odd frames)
-          if (i == 1 && (framecnt % 2 == 0)) {
-            goto SKIP_NPU;
-          }
-
           uint64_t time_stamp_us = 0;
-          // Use NETWORK_TRI_CHIMERA for both Front and Rear
-          networkOrder[i] = NETWORK_TRI_CHIMERA;
+          networkOrder[i] = nc_get_cnn_networks_id();
           unsigned char *rgbdata_for_cnn =
               (unsigned char *)malloc(npu_input_info.rgb_size);
 #ifdef USE_8MP_VI
@@ -846,7 +809,6 @@ void render(void *data, struct wl_callback *callback, uint32_t time) {
                        (E_NETWORK_UID)networkOrder[i]); // 50us
           // printf("send cnn msg : %llu us\n", nc_elapsed_us_time(start_time));
         }
-      SKIP_NPU:
 #ifndef USE_8MP_VI
         unsigned char *interleaved_rgb =
             (unsigned char *)malloc(NPU_INPUT_WIDTH * NPU_INPUT_HEIGHT * 3);
