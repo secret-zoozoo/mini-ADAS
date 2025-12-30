@@ -37,7 +37,6 @@
 #include <signal.h>
 #include <linux/input.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -87,7 +86,7 @@
 ********************************************************************************
 */
 
-#define VIS0_MAX_CH         (0)
+#define VIS0_MAX_CH         (1)
 #define VIS1_MAX_CH         (1)
 #define VIDEO_MAX_CH        (VIS0_MAX_CH + VIS1_MAX_CH)
 
@@ -233,41 +232,55 @@ static int dsr_deinit(void)
 void set_viewport_config(void)
 {
 #if(VIDEO_MAX_CH == 1)
-    // full screen view
-    g_viewport[0].x         = 0;
-    g_viewport[0].y         = 0;
-    g_viewport[0].width     = WINDOW_WIDTH/2;
-    g_viewport[0].height    = WINDOW_HEIGHT;
-#elif(VIDEO_MAX_CH > 1)
-    // quad view
-    for(int i = 0; i < VIDEO_MAX_CH; i++)
-    {
-        g_viewport[i].width     = WINDOW_WIDTH/2;
-        g_viewport[i].height    = WINDOW_HEIGHT/2;
+  // full screen view
+  g_viewport[0].x         = 0;
+  g_viewport[0].y         = 0;
+  g_viewport[0].width     = WINDOW_WIDTH;
+  g_viewport[0].height    = WINDOW_HEIGHT;
 
-        // Set the view position for each channel
-        switch(i)
-        {
-            case 0:
-                g_viewport[i].x = 0;
-                g_viewport[i].y = WINDOW_HEIGHT/2;
-                break;
-            case 1:
-                g_viewport[i].x = WINDOW_WIDTH/2;
-                g_viewport[i].y = WINDOW_HEIGHT/2;
-                break;
-            case 2:
-                g_viewport[i].x = 0;
-                g_viewport[i].y = 0;
-                break;
-            case 3:
-                g_viewport[i].x = WINDOW_WIDTH/2;
-                g_viewport[i].y = 0;
-                break;
-            default:
-                break;
-        }
+#elif (VIDEO_MAX_CH == 2)
+  // Split Screen (Left/Right)
+  // Left Viewport (Camera 0)
+  g_viewport[0].x = WINDOW_WIDTH / 4;
+  g_viewport[0].y = WINDOW_HEIGHT / 2;
+  g_viewport[0].width = WINDOW_WIDTH / 2;
+  g_viewport[0].height = WINDOW_HEIGHT / 2;
+  // Right Viewport (Camera 1) 후면카메라
+  g_viewport[1].x = WINDOW_WIDTH / 4;
+  g_viewport[1].y = 0;
+  g_viewport[1].width = WINDOW_WIDTH / 2;
+  g_viewport[1].height = WINDOW_HEIGHT / 2 ;
+
+#elif(VIDEO_MAX_CH > 2)
+  // quad view
+  for(int i = 0; i < VIDEO_MAX_CH; i++)
+  {
+    g_viewport[i].width     = WINDOW_WIDTH/2;
+    g_viewport[i].height    = WINDOW_HEIGHT/2;
+
+    // Set the view position for each channel
+    switch(i)
+    {
+    case 0:
+      g_viewport[i].x = 0;
+      g_viewport[i].y = WINDOW_HEIGHT/2;
+      break;
+    case 1:
+      g_viewport[i].x = WINDOW_WIDTH/2;
+      g_viewport[i].y = WINDOW_HEIGHT/2;
+      break;
+    case 2:
+      g_viewport[i].x = 0;
+      g_viewport[i].y = 0;
+      break;
+    case 3:
+      g_viewport[i].x = WINDOW_WIDTH/2;
+      g_viewport[i].y = 0;
+      break;
+    default:
+      break;
     }
+  }
 #endif
 }
 
@@ -659,6 +672,36 @@ float calc_fps_at_loop_ent1(int update_period_fcnt)
 }
 #endif
 
+// Helper function to check if a point is inside a polygon (trapezoid)
+// Uses Ray Casting algorithm or simply checking sides for a convex polygon like a trapezoid.
+// Here we use the property that for a convex polygon, a point is inside if it is on the same side of all lines defined by the edges.
+// However, since we have a simple trapezoid aligned with the screen, we can simplify or just use a general point-in-polygon.
+// Let's use a simple cross product method for the 4 sides.
+
+bool is_point_in_trapezoid(float px, float py, 
+                          float x1, float y1, 
+                          float x2, float y2, 
+                          float x3, float y3, 
+                          float x4, float y4) 
+{
+
+    // Cross product for edge (x1,y1) -> (x2,y2) with point (px,py)
+    float d1 = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1);
+    // Cross product for edge (x2,y2) -> (x3,y3) with point (px,py)
+    float d2 = (x3 - x2) * (py - y2) - (y3 - y2) * (px - x2);
+    // Cross product for edge (x3,y3) -> (x4,y4) with point (px,py)
+    float d3 = (x4 - x3) * (py - y3) - (y4 - y3) * (px - x3);
+    // Cross product for edge (x4,y4) -> (x1,y1) with point (px,py)
+    float d4 = (x1 - x4) * (py - y4) - (y1 - y4) * (px - x4);
+
+    // If all cross products have the same sign (or are zero), the point is inside.
+    // If signs differ, it's outside.
+    bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0) || (d4 < 0);
+    bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0) || (d4 > 0);
+
+    return !(has_neg && has_pos); // True if all same sign or zero
+}
+
 void render(void *data, struct wl_callback *callback, uint32_t time)
 {
     static struct timespec begin, end, set_time;
@@ -669,6 +712,8 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
     static uint64_t opengl_time = 0;
     static uint64_t framecnt = 0;
     int networkOrder[VIDEO_MAX_CH];
+    
+    bool warning_active = false; // Detection flag
 
     (void)time;
 
@@ -767,6 +812,14 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
     draw_ld_output_opengl();
 #endif
 
+    // Define trapezoid coordinates for collision detection BEFORE drawing NPU results (actually we can reuse variables)
+    float top_y    = WINDOW_HEIGHT * 0.98f;
+    float bottom_y = WINDOW_HEIGHT * 0.30f;
+    float top_left_x     = WINDOW_WIDTH * 0.15f;
+    float top_right_x    = WINDOW_WIDTH * 0.85f;
+    float bottom_left_x  = WINDOW_WIDTH * 0.40f;
+    float bottom_right_x = WINDOW_WIDTH * 0.60f;
+
     // draw cnn network result
     for(uint32_t ch = 0; ch < VIDEO_MAX_CH; ch++)
     {
@@ -781,6 +834,47 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
             det_buf = (pp_result_buf *)nc_tsfs_ff_get_readable_buffer_and_timestamp(ch+DETECT_NETWORK, &time_stamp);
             if (det_buf) {
                 nc_draw_gl_npu(g_viewport[ch], det_buf->net_task, det_buf, g_npu_prog);
+                
+                // --- Collision Detection Logic ---
+                stCnnPostprocessingResults *det_result = &det_buf->cnn_result;
+                stObjDrawInfo *draw_cnn = &det_buf->draw_info;
+                
+                // Assuming we are iterating through detected objects
+                for(int i=0; i<draw_cnn->max_class_cnt; i++){
+                    for(int bidx = 0; bidx < det_result->class_objs[i].obj_cnt; bidx++) {
+                        stObjInfo obj_info = det_result->class_objs[i].objs[bidx];
+                        
+                        // Calculate bottom-center of the bbox
+                        // Note: bbox.x, y are top-left? or bottom-left? 
+                        // Often det results are normalized 0..1 or pixel coords.
+                        // Assuming pixel coords as used in `nc_draw_gl_npu`:
+                        // nc_opengl_draw_text(..., buftext, obj_info.bbox.x, (float)WINDOW_HEIGHT - (obj_info.bbox.y-12), ...)
+                        // This suggests bbox.y is from TOP? because of the subtraction from WINDOW_HEIGHT.
+                        // But OpenGL usually has (0,0) at bottom-left.
+                        
+                        // Regardless, for the purpose of "screen position", we just need to be consistent with the trapezoid which is defined in WINDOW_WIDTH/HEIGHT terms.
+                        // If trapezoid is drawn using these coords, we should compare using the same coords.
+                        
+                        float obj_center_x = obj_info.bbox.x + (obj_info.bbox.w / 2.0f);
+                        float obj_bottom_y = obj_info.bbox.y + obj_info.bbox.h; // Bottom of the box
+                        
+                        // Check collision
+                        // Pass trapezoid points in counter-clockwise order for is_point_in_trapezoid
+                        // P1: bottom_left_x, bottom_y
+                        // P2: bottom_right_x, bottom_y
+                        // P3: top_right_x, top_y
+                        // P4: top_left_x, top_y
+                        if(is_point_in_trapezoid(obj_center_x, obj_bottom_y, 
+                                               bottom_left_x, bottom_y, 
+                                               bottom_right_x, bottom_y, 
+                                               top_right_x, top_y, 
+                                               top_left_x, top_y)) 
+                        {
+                            warning_active = true;
+                        }
+                    }
+                }
+                // ---------------------------------
             }
             nc_tsfs_ff_finish_read_buf(ch+DETECT_NETWORK);
         #endif
@@ -804,6 +898,73 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
         #endif
         }
     }
+
+    glViewport(0,0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    // Set guideline color based on warning status
+    float *guide_color;
+    float color_normal[4] = {0.0f, 1.0f, 0.0f, 1.0f}; // Green
+    float color_warning[4] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red
+    
+    if (warning_active) {
+        guide_color = color_warning;
+    } else {
+        guide_color = color_normal;
+    }
+
+    // 위쪽
+    nc_opengl_draw_line(top_left_x, top_y, top_right_x, top_y, 6, guide_color, g_npu_prog);
+
+    // 오른쪽
+    nc_opengl_draw_line(top_right_x, top_y, bottom_right_x, bottom_y, 6, guide_color, g_npu_prog);
+
+    // 아래쪽
+    nc_opengl_draw_line(bottom_right_x, bottom_y, bottom_left_x, bottom_y, 6, guide_color, g_npu_prog);
+
+    // 왼쪽
+    nc_opengl_draw_line(bottom_left_x, bottom_y, top_left_x, top_y, 6, guide_color, g_npu_prog);
+
+    // ===============================
+    // 사다리꼴 내부 가로선 2개 (3등분)
+    // ===============================
+
+    float t1 = 1.0f / 3.0f;
+    float t2 = 2.0f / 3.0f;
+
+    // 첫 번째 가로선
+    float y_mid1 = top_y + t1 * (bottom_y - top_y);
+    float x_mid1_left  = top_left_x  + t1 * (bottom_left_x  - top_left_x);
+    float x_mid1_right = top_right_x + t1 * (bottom_right_x - top_right_x);
+
+    nc_opengl_draw_line(
+        x_mid1_left, y_mid1,
+        x_mid1_right, y_mid1,
+        4, guide_color, g_npu_prog
+    );
+
+    // 두 번째 가로선
+    float y_mid2 = top_y + t2 * (bottom_y - top_y);
+    float x_mid2_left  = top_left_x  + t2 * (bottom_left_x  - top_left_x);
+    float x_mid2_right = top_right_x + t2 * (bottom_right_x - top_right_x);
+
+    nc_opengl_draw_line(
+        x_mid2_left, y_mid2,
+        x_mid2_right, y_mid2,
+        4, guide_color, g_npu_prog
+    );
+
+    // Display WARNING Text if active
+    if (warning_active) {
+        char warn_text[] = "WARNING!";
+        float warn_color[3] = {1.0f, 0.0f, 0.0f}; // Red text
+        // Center the text roughly. Assuming 1920x1080.
+        // Font size 38 might be small, let's try to put it in the center.
+        // x = WINDOW_WIDTH/2 - offset, y = WINDOW_HEIGHT/2
+        nc_opengl_draw_text(&font_38, warn_text, WINDOW_WIDTH/2 - 100, WINDOW_HEIGHT/2, 2.0f, warn_color, WINDOW_WIDTH, WINDOW_HEIGHT, g_font_prog);
+    }
+
+    //nc_wayland_display_draw(window,(void *)render);
+
 
     framecnt++;
     fpscount+=1;

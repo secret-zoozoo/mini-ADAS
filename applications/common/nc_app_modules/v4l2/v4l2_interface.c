@@ -756,7 +756,7 @@ int nc_v4l2_get_format(int fd, int *width, int *height)
     if (ioctl(fd, VIDIOC_G_FMT, &format) == -1) {
         perror("Failed to get format");
         close(fd);
-        return 1;
+        return -1;
     }
 
     *width = format.fmt.pix.width;
@@ -795,6 +795,7 @@ int nc_v4l2_init_device_and_stream_on(st_nc_v4l2_config *s_nc_config, int video_
     s_nc_config->sensor_height = sensor_height;
 
     ret = nc_v4l2_set_input(s_nc_config->video_buf.video_fd, 0, 2);
+
     if (ret < 0) {
         printf("nc_v4l2_set_input() failure!\n");
         return -1;

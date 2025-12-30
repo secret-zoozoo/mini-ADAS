@@ -184,20 +184,12 @@ Font font_24;
 unsigned char *image_data;
 static int running = 1;
 
-// --- Warning State Variables ---
-bool warning_active = false;
-int warning_level = 0; // 0: None, 1: Far, 2: Mid, 3: Near
 // Mode Switching
 volatile sig_atomic_t g_current_mode = DRIVING_MODE;
 
 // Collision Detection State (per channel)
 static float g_prev_max_area[VIDEO_MAX_CH] = {0};
 static uint64_t g_prev_ts_us[VIDEO_MAX_CH] = {0};
-
-// --- Warning Timing State (for beeps) ---
-static uint64_t last_beep_ms = 0;
-static uint64_t last_detection_ms = 0;
-static int last_warning_level = 0;
 
 st_nc_v4l2_config v4l2_config[VIDEO_MAX_CH];
 
@@ -1047,7 +1039,7 @@ void render_detection_results(struct window *window) {
  * @brief 주차 모드에서 가이드라인 및 충돌 경고 렌더링
  */
 void render_parking_guidelines(void) {
-  int max_level_in_frame = 0;
+  bool warning_active = false;
 
   // Define trapezoid coordinates
   float top_y = WINDOW_HEIGHT * 0.98f;
@@ -1056,12 +1048,6 @@ void render_parking_guidelines(void) {
   float top_right_x = WINDOW_WIDTH * 0.85f;
   float bottom_left_x = WINDOW_WIDTH * 0.40f;
   float bottom_right_x = WINDOW_WIDTH * 0.60f;
-
-  // Calculate mid-lines for 3-stage warning regions
-  float t1 = 1.0f / 3.0f;
-  float t2 = 2.0f / 3.0f;
-  float y_mid1 = top_y + t1 * (bottom_y - top_y);
-  float y_mid2 = top_y + t2 * (bottom_y - top_y);
 
   // Collision detection for CH1 (rear camera)
   uint32_t ch = 1; // Rear camera only in parking mode
@@ -1093,68 +1079,16 @@ void render_parking_guidelines(void) {
           if (is_point_in_trapezoid(obj_center_x, obj_bottom_y, bottom_left_x,
                                     bottom_y, bottom_right_x, bottom_y,
                                     top_right_x, top_y, top_left_x, top_y)) {
-            
-            int current_obj_level = 1;
-            if (obj_bottom_y < y_mid2) current_obj_level = 1;      // Far
-            else if (obj_bottom_y < y_mid1) current_obj_level = 2; // Mid
-            else current_obj_level = 3;                            // Near
-            
-            if (current_obj_level > max_level_in_frame) {
-              max_level_in_frame = current_obj_level;
-            }
+            warning_active = true;
+            break;
           }
         }
+        if (warning_active)
+          break;
       }
     }
     nc_tsfs_ff_finish_read_buf(ch + DETECT_NETWORK);
 #endif
-  }
-
-  // --- Finalize Warning State and Beep logic (PARKING MODE ONLY) ---
-  if (g_current_mode == PARKING_MODE) {
-      // Get current time for grace period
-      struct timespec ts;
-      clock_gettime(CLOCK_MONOTONIC, &ts);
-      uint64_t current_ms = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-
-      if (max_level_in_frame > 0) {
-          last_detection_ms = current_ms;
-          last_warning_level = max_level_in_frame;
-          warning_level = max_level_in_frame;
-          warning_active = true;
-      } else if (current_ms - last_detection_ms < 1000) {
-          // 1-second grace period
-          if (last_warning_level > 0) {
-              warning_active = true;
-              warning_level = last_warning_level;
-          }
-      } else {
-          warning_active = false;
-          warning_level = 0;
-          last_warning_level = 0;
-      }
-
-      // --- Continuous multi-stage beep logic ---
-      if (warning_active && warning_level > 0) {
-          uint64_t interval = 1000; // default 1s
-          if (warning_level == 1) interval = 1200;      // Far: 1.2s
-          else if (warning_level == 2) interval = 800;  // Mid: 0.8s
-          else if (warning_level == 3) interval = 500;  // Near: 0.5s
-
-          if (current_ms - last_beep_ms >= interval) {
-              printf("\a[BEEP: Level %d]\n", warning_level);
-              fflush(stdout);
-              last_beep_ms = current_ms;
-          }
-      } else {
-          last_beep_ms = 0;
-      }
-  } else {
-      // In Driving Mode, ensure warning states are reset
-      warning_active = false;
-      warning_level = 0;
-      last_beep_ms = 0;
-      last_warning_level = 0;
   }
 
   // Set guideline color based on warning status
@@ -1180,11 +1114,16 @@ void render_parking_guidelines(void) {
                       guide_color, g_npu_prog);
 
   // Draw 3-section dividing lines
+  float t1 = 1.0f / 3.0f;
+  float t2 = 2.0f / 3.0f;
+
+  float y_mid1 = top_y + t1 * (bottom_y - top_y);
   float x_mid1_left = top_left_x + t1 * (bottom_left_x - top_left_x);
   float x_mid1_right = top_right_x + t1 * (bottom_right_x - top_right_x);
   nc_opengl_draw_line(x_mid1_left, y_mid1, x_mid1_right, y_mid1, 4, guide_color,
                       g_npu_prog);
 
+  float y_mid2 = top_y + t2 * (bottom_y - top_y);
   float x_mid2_left = top_left_x + t2 * (bottom_left_x - top_left_x);
   float x_mid2_right = top_right_x + t2 * (bottom_right_x - top_right_x);
   nc_opengl_draw_line(x_mid2_left, y_mid2, x_mid2_right, y_mid2, 4, guide_color,
@@ -1192,11 +1131,10 @@ void render_parking_guidelines(void) {
 
   // Display WARNING text if active
   if (warning_active) {
-    char warn_text[32];
-    sprintf(warn_text, "WARNING! LV%d", warning_level);
+    char warn_text[] = "WARNING!";
     float warn_color[3] = {1.0f, 0.0f, 0.0f}; // Red text
-    nc_opengl_draw_text(&font_38, warn_text, WINDOW_WIDTH / 2 - 120,
-                        WINDOW_HEIGHT / 2, 1.2f, warn_color, WINDOW_WIDTH,
+    nc_opengl_draw_text(&font_38, warn_text, WINDOW_WIDTH / 2 - 100,
+                        WINDOW_HEIGHT / 2, 1.0f, warn_color, WINDOW_WIDTH,
                         WINDOW_HEIGHT, g_font_prog);
   }
 }

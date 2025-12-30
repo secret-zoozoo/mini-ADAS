@@ -290,7 +290,7 @@ LIBRARY             += -lm -lpthread -lrt
 #############################################################
 
 # Test App
-CSRCS               := user_npu.c
+CSRCS               := user_npu_h.c
 CSRCS               += $(NC_APP_MODULES)/v4l2/v4l2_interface.c
 CSRCS               += $(NC_APP_MODULES)/config/nc_cnn_config_parser.c
 CSRCS               += $(NC_APP_MODULES)/utils/nc_utils.c
@@ -346,7 +346,7 @@ CSRCS               += $(NC_APP_MODULES)/dsr/nc_dsr_set.c
 CSRCS               += $(NC_APP_MODULES)/dsr/nc_dsr_helper.c
 endif
 
-TARGET_TEST         := npu_user
+TARGET_TEST         := npu_user_h
 
 all:
 	${CXX} $(CFLAGS_TEST) $(CPPSRCS) $(CSRCS) -o $(TARGET_TEST) $(LIBRARY)

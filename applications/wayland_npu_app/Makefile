@@ -169,11 +169,11 @@ CFLAGS_TEST         += -fno-inline -fno-omit-frame-pointer
 CFLAGS_TEST         += $(INC_DIR)
 CFLAGS_TEST         += -fopenmp
 ifeq ($(USE_BYTETRACK), yes)
-CFLAGS_TEST         += -Wall -Wextra -Wformat=2 -Wpedantic -Wconversion -fstack-protector-all
-# CFLAGS_TEST         += -Werror
+CFLAGS_TEST         += -Wall -Wextra -Wformat=2 -Wpedantic -fstack-protector-all
+# CFLAGS_TEST         += -Werror, -Wconversion
 else
-CFLAGS_TEST         += -Wall -Wextra -Wformat=2 -Wpedantic -Wconversion -fstack-protector-all
-# CFLAGS_TEST         += -Werror
+CFLAGS_TEST         += -Wall -Wextra -Wformat=2 -Wpedantic -fstack-protector-all
+# CFLAGS_TEST         += -Werror, -Wconversion
 endif
 CFLAGS_TEST         += -DAIWARE_DEVICE_SUPPORTED
 

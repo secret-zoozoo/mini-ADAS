@@ -28,6 +28,7 @@
 *               INCLUDES
 ********************************************************************************
 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,18 +88,20 @@
 ********************************************************************************
 */
 
-#define VIS0_MAX_CH         (0)
-#define VIS1_MAX_CH         (1)
+#define VIS0_MAX_CH         (1) // 영상 입력 파이프 구분용
+#define VIS1_MAX_CH         (1) //^카메라 2개 쓸거라 1에서 2로 바꿔줌. // 얘만 수행하도록 1로 해놨음 vision0이랑 vision1이랑 똑같지만,,, 
 #define VIDEO_MAX_CH        (VIS0_MAX_CH + VIS1_MAX_CH)
 
 #define VIDEO_BUFFER_NUM    (3)
 
 #ifdef USE_8MP_VI
-#define VIDEO_WIDTH         MAX_WIDTH_FOR_VDMA_CNN_DS
-#define VIDEO_HEIGHT        MAX_HEIGHT_FOR_VDMA_CNN_DS
+#define VIDEO_WIDTH         MAX_WIDTH_FOR_VDMA_CNN_DS //^^^
+#define VIDEO_HEIGHT        MAX_HEIGHT_FOR_VDMA_CNN_DS //^^^
 #else
 #define VIDEO_WIDTH         NPU_INPUT_WIDTH
 #define VIDEO_HEIGHT        NPU_INPUT_HEIGHT
+//^^^ #define VIDEO_WIDTH         NPU_INPUT_WIDTH
+// #define VIDEO_HEIGHT        NPU_INPUT_HEIGHT
 #endif
 
 #define CAP_FPS             (30)
@@ -230,38 +233,43 @@ static int dsr_deinit(void)
 }
 #endif
 
-void set_viewport_config(void)
+void set_viewport_config(void) ///화면분할
 {
 #if(VIDEO_MAX_CH == 1)
     // full screen view
     g_viewport[0].x         = 0;
     g_viewport[0].y         = 0;
-    g_viewport[0].width     = WINDOW_WIDTH/2;
+    g_viewport[0].width     = WINDOW_WIDTH / 2;
     g_viewport[0].height    = WINDOW_HEIGHT;
+
+// #elif (VIDEO_MAX_CH == 2) //^2분할 화면을 위해 추가해줌. 
+//     g_viewport[0] = (struct viewport){0, WINDOW_HEIGHT/4, WINDOW_WIDTH/2, WINDOW_HEIGHT};
+//     g_viewport[1] = (struct viewport){WINDOW_WIDTH/2, WINDOW_HEIGHT/4, WINDOW_WIDTH/2, WINDOW_HEIGHT};
+
 #elif(VIDEO_MAX_CH > 1)
     // quad view
     for(int i = 0; i < VIDEO_MAX_CH; i++)
     {
-        g_viewport[i].width     = WINDOW_WIDTH/2;
-        g_viewport[i].height    = WINDOW_HEIGHT/2;
+        g_viewport[i].width     = WINDOW_WIDTH;
+        g_viewport[i].height    = WINDOW_HEIGHT;
 
         // Set the view position for each channel
         switch(i)
         {
             case 0:
                 g_viewport[i].x = 0;
-                g_viewport[i].y = WINDOW_HEIGHT/2;
+                g_viewport[i].y = WINDOW_HEIGHT;
                 break;
             case 1:
-                g_viewport[i].x = WINDOW_WIDTH/2;
-                g_viewport[i].y = WINDOW_HEIGHT/2;
+                g_viewport[i].x = WINDOW_WIDTH;
+                g_viewport[i].y = WINDOW_HEIGHT;
                 break;
             case 2:
                 g_viewport[i].x = 0;
                 g_viewport[i].y = 0;
                 break;
             case 3:
-                g_viewport[i].x = WINDOW_WIDTH/2;
+                g_viewport[i].x = WINDOW_WIDTH;
                 g_viewport[i].y = 0;
                 break;
             default:
@@ -271,11 +279,11 @@ void set_viewport_config(void)
 #endif
 }
 
-void set_v4l2_config(void)
+void set_v4l2_config(void)///V4L2 설정
 {
     int i = 0, j = 0;
 
-    for(i = 0; i < VIS0_MAX_CH; i++) {
+    for(i = 0; i < VIS0_MAX_CH; i++) { //^vision0쪽 채널들 //(제공 코드에서는 비활성화됐던 부분인데, 영상 포맷 다르게 받을거면 vision0 체널에 의해 활성화될거야.)
         v4l2_config[i].video_buf.video_device_num = CNN_DEVICE_NUM(VISION0) + i;
         v4l2_config[i].video_buf.video_fd         = -1;
 #ifdef USE_8MP_VI
@@ -293,18 +301,20 @@ void set_v4l2_config(void)
         v4l2_config[i].ds_width                   = MAX_WIDTH_FOR_VDMA_CNN_DS;
         v4l2_config[i].ds_height                  = MAX_HEIGHT_FOR_VDMA_CNN_DS;
 #else
-        v4l2_config[i].ds_width                   = VIDEO_WIDTH;
-        v4l2_config[i].ds_height                  = VIDEO_HEIGHT;
+        // v4l2_config[j].ds_width                   = VIDEO_WIDTH;
+        // v4l2_config[j].ds_height                  = VIDEO_HEIGHT; ^^^
+        v4l2_config[j].ds_width                   = VIDEO_WIDTH;
+        v4l2_config[j].ds_height                  = VIDEO_HEIGHT;
 #endif
     }
 
-    for(j = VIS0_MAX_CH; j < VIDEO_MAX_CH; j++) {
-        v4l2_config[j].video_buf.video_device_num = CNN_DEVICE_NUM(VISION1) + j;
+    for(j = VIS0_MAX_CH; j < VIDEO_MAX_CH; j++) { //^vision1쪽 채널들
+        v4l2_config[j].video_buf.video_device_num = CNN_DEVICE_NUM(VISION1) + j ; //^^^
         v4l2_config[j].video_buf.video_fd         = -1;
 #ifdef USE_8MP_VI
         v4l2_config[j].dma_mode                   = INTERLEAVE;
 #else
-        v4l2_config[j].dma_mode                   = PLANAR;
+        v4l2_config[j].dma_mode                   = PLANAR;//일반적으로 많이 보는 비디오 형식,
 #endif
         v4l2_config[j].img_process                = MODE_DS;
         v4l2_config[j].pixformat                  = V4L2_PIX_FMT_RGB24;
@@ -316,6 +326,8 @@ void set_v4l2_config(void)
         v4l2_config[j].ds_width                   = MAX_WIDTH_FOR_VDMA_CNN_DS;
         v4l2_config[j].ds_height                  = MAX_HEIGHT_FOR_VDMA_CNN_DS;
 #else
+        // v4l2_config[j].ds_width                   = VIDEO_WIDTH;
+        // v4l2_config[j].ds_height                  = VIDEO_HEIGHT; ^^^
         v4l2_config[j].ds_width                   = VIDEO_WIDTH;
         v4l2_config[j].ds_height                  = VIDEO_HEIGHT;
 #endif
@@ -376,14 +388,28 @@ int v4l2_initialize(void)
     for(int i = 0; i < VIDEO_MAX_CH; i++)
     {
         v4l2_config[i].video_buf.video_fd = nc_v4l2_open(v4l2_config[i].video_buf.video_device_num, true);
-        if(v4l2_config[i].video_buf.video_fd == errno) {
-            printf("[error] nc_v4l2_open() failure!\n");
-        } else {
-            if(nc_v4l2_init_device_and_stream_on(&v4l2_config[i], VIDEO_BUFFER_NUM) < 0) {
-                printf("[error] nc_v4l2_init_device_and_stream_on() failure!\n");
-                return -1;
-            }
+        
+        if (v4l2_config[i].video_buf.video_fd < 0) {
+                printf("[error] nc_v4l2_open() failure! dev=%d errno=%d(%s)\n",
+                v4l2_config[i].video_buf.video_device_num, errno, strerror(errno));
+                return -1; // 여기서 끝내야 함
         }
+
+        if (nc_v4l2_init_device_and_stream_on(&v4l2_config[i], VIDEO_BUFFER_NUM) < 0) {
+            printf("[error] nc_v4l2_init_device_and_stream_on() failure! dev=%d\n",
+                v4l2_config[i].video_buf.video_device_num);
+            return -1;
+        }
+
+        // v4l2_config[i].video_buf.video_fd = nc_v4l2_open(v4l2_config[i].video_buf.video_device_num, true);
+        // if(v4l2_config[i].video_buf.video_fd == errno) {
+        //     printf("[error] nc_v4l2_open() failure!\n");
+        // } else {
+        //     if(nc_v4l2_init_device_and_stream_on(&v4l2_config[i], VIDEO_BUFFER_NUM) < 0) {
+        //         printf("[error] nc_v4l2_init_device_and_stream_on() failure!\n");
+        //         return -1;
+        //     }
+        // }
     }
 
     nc_v4l2_show_user_config(&v4l2_config[0], VIDEO_MAX_CH);
@@ -425,6 +451,7 @@ void nc_draw_gl_npu(struct viewport viewport, int network_task, pp_result_buf *n
             for(int bidx = 0; bidx < det_result->class_objs[i].obj_cnt; bidx++) {
                 stObjInfo obj_info = det_result->class_objs[i].objs[bidx];
                 nc_opengl_draw_rectangle(obj_info.bbox.x, obj_info.bbox.y, obj_info.bbox.w, obj_info.bbox.h, color[i], g_npu_prog);
+                /// 여기에 
 
                 // draw bbox label
 #ifdef USE_BYTETRACK
@@ -443,6 +470,10 @@ void nc_draw_gl_npu(struct viewport viewport, int network_task, pp_result_buf *n
             free(color[i]);
         }
         free(color);
+        /// 여기에
+
+
+        
     }
     else if(network_task == SEGMENTATION)
     {
@@ -477,14 +508,14 @@ void nc_draw_gl_npu(struct viewport viewport, int network_task, pp_result_buf *n
 
             if(point_num == 0) continue;
 
-            for(int j=0; j<point_num-1; j++)
+            for(int j=0; j<point_num-1; j++)//line 그리기 위한 point 정보 
             {
                 float st_x = det_result->lane_det[i].point[j].x;
                 float st_y = det_result->lane_det[i].point[j].y;
                 float end_x = det_result->lane_det[i].point[j+1].x;
                 float end_y = det_result->lane_det[i].point[j+1].y;
 
-                nc_opengl_draw_line(st_x, st_y, end_x, end_y, lane_class, color[i], g_npu_prog);
+                nc_opengl_draw_line(st_x, st_y, end_x, end_y, lane_class, color[i], g_npu_prog);//라인 그리는 함수
             }
         }
 
@@ -589,11 +620,11 @@ void gl_initialize(struct window *window)
     int width, height, channels;
     char buf[128];
 
-    sprintf(buf, "misc/image/nextchip_s.png");
+    sprintf(buf, "misc/image/nextchip_s.png");//여기가 영상 데이터 안 들어올때 보이는 이미지 부분
     image_data = SOIL_load_image(buf, &width, &height, &channels, SOIL_LOAD_RGBA);
 
     // init video shader
-    nc_opengl_init_video_shader(window, 0);
+    nc_opengl_init_video_shader(window, 0);//하나의 공간이라고 생각하면 될듯하다... npu용 공간... 이런거
 
     // init texture for video draw
     for(int i=0;i<VIDEO_MAX_CH;i++)
@@ -695,6 +726,7 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
             // Upload texture from logo image data
             glBindTexture(GL_TEXTURE_2D, window->gl.texture[i]);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
+            //^^^glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
 
         }else
         {
@@ -725,6 +757,7 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
 #else
                     memcpy(rgbdata_for_cnn, (unsigned char *)v4l2_config[i].video_buf.buffers[video_buf.index].start, npu_input_info.rgb_size); // 600us
 #endif
+                    
                     send_cnn_buf (rgbdata_for_cnn, time_stamp_us, (uint32_t)i, (E_NETWORK_UID)networkOrder[i]);// 50us
                     // printf("send cnn msg : %llu us\n", nc_elapsed_us_time(start_time));
                 }
@@ -746,6 +779,7 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
 #ifdef USE_8MP_VI
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, v4l2_config[i].video_buf.buffers[video_buf.index].start);
 #else
+                //^^^ glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, interleaved_rgb);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, interleaved_rgb);
                 if(interleaved_rgb){
                     // printf("free inter\n");
@@ -782,7 +816,7 @@ void render(void *data, struct wl_callback *callback, uint32_t time)
             if (det_buf) {
                 nc_draw_gl_npu(g_viewport[ch], det_buf->net_task, det_buf, g_npu_prog);
             }
-            nc_tsfs_ff_finish_read_buf(ch+DETECT_NETWORK);
+            nc_tsfs_ff_finish_read_buf(ch+DETECT_NETWORK);//detection이었다면 박스를 그리니까 박스를 위한 컬러나 뭐 그런거다
         #endif
 
         #ifdef SEGMENT_NETWORK
@@ -1027,7 +1061,7 @@ int main(int argc, char **argv)
     memset(&window, 0, sizeof(window));
     memset(&v4l2_config, 0, sizeof(v4l2_config));
 
-    set_v4l2_config();
+    set_v4l2_config();//카메라 컨피그 셋팅
 
     nc_init_path_localizer();
 
@@ -1036,7 +1070,8 @@ int main(int argc, char **argv)
     window.window_size.width  = WINDOW_WIDTH;
     window.window_size.height = WINDOW_HEIGHT;
 
-    set_viewport_config();
+
+    set_viewport_config();//카메라 4채널 가능, 4개 연결되면 직접 출력 가능
 
     nc_wayland_display_init(&display,(void *)render);
 
@@ -1056,14 +1091,14 @@ int main(int argc, char **argv)
 #endif
 
     // create thread-safe flip-flop buffer
-    for (int i = 0; i < VIDEO_MAX_CH; i++) {
+    for (int i = 0; i < VIDEO_MAX_CH; i++) { //구조체를 가지고서 카메라 4개, 5개면 max_ch 변수가 여러개 되어서 여러번 돌 수 있게 해놨다.
         if (v4l2_config[i].video_buf.video_fd == -1){
 
         }
         else{
     #ifdef DETECT_NETWORK
             int det_buf_size = sizeof(pp_result_buf);
-            if(nc_tsfs_ff_create_buffers(i+DETECT_NETWORK, det_buf_size) < 0) {
+            if(nc_tsfs_ff_create_buffers(i+DETECT_NETWORK, det_buf_size) < 0) {//buffer는 2개로 나눠놔서 앱이 전부 도는 과정에서 데이터가 처리되는 속도보다 코드가 실행되는 속도가 더 빠르면,, 앱이 쓰레드라서 네트워크 모델 돌면서 다른 동작 수행하도록 하고 있다. 만약 네트워크가 아직도 그대로 이면, 덮어쓰는 식으로 활용하고 있다. 아직 함수가 다 끝나지 않았다면 네트워크 모델이 다 끝났다고 처리할 수 있도록 더블 버퍼를 처리하고 있다.
                 exit(1);
             }
     #endif
@@ -1089,7 +1124,7 @@ int main(int argc, char **argv)
     }
 
     printf("create tasks\n");
-    thr_id = pthread_create(&p_thread[task_cnt++], NULL, cnn_task, (void *)NULL);
+    thr_id = pthread_create(&p_thread[task_cnt++], NULL, cnn_task, (void *)NULL);//cnn_task는 네트워크 모델관련 준비한거 같다.
     if (thr_id < 0) {
         perror("thread create error : cnn_task");
         exit(1);
@@ -1105,7 +1140,7 @@ int main(int argc, char **argv)
     }
 
 #ifdef USE_ADAS_LD
-    thr_id = pthread_create(&p_thread[task_cnt++], NULL, ld_task, NULL);
+    thr_id = pthread_create(&p_thread[task_cnt++], NULL, ld_task, NULL);//ld= ladar detection... 쪽
     if (thr_id < 0) {
         perror("thread create error : ld_task");
         exit(1);
